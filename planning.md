@@ -100,6 +100,8 @@ discussion | news | misc | recommendation
 
 ---
 
+#
+
 ## AI Tool Plan
 
 - Used Claude to help label the first batch of example posts — labeled 50 manually, had Claude finish the remaining ~350. Reviewed and corrected ~20 labels where Claude's judgment differed from the annotation rules.
