@@ -2,25 +2,26 @@
 TakeMeter — Post Classifier Inference UI
 -----------------------------------------
 Run this after fine-tuning in the TakeMeter notebook.
-Requires the saved model at ./takemeter-model and the tokenizer.
 
 Usage (in Colab, after Section 3):
     !pip install -q gradio
     %run takemeter_inference.py
+
+
+    in order for it to work you need to change 
+    MODEL_DIR  = os.path.abspath("./takemeter-model/checkpoint-126")
+    so it matches where the model is being kept ( might change to checkpoint=###)
 """
 
+import os
 import numpy as np
 import torch
 import gradio as gr
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import os
-for root, dirs, files in os.walk("./takemeter-model"):
-    for f in files:
-        print(os.path.join(root, f))
+from transformers import AutoTokenizer, DistilBertForSequenceClassification
+
 # ── Config ────────────────────────────────────────────────────────────────
-MODEL_DIR = "./takemeter-model/checkpoint-144"  # match whatever number you see
-MODEL_NAME  = "distilbert-base-uncased"   # used as tokenizer fallback
-MAX_LENGTH  = 256
+MODEL_DIR  = os.path.abspath("./takemeter-model/checkpoint-126")
+MAX_LENGTH = 256
 
 LABEL_MAP = {
     "discussion":     0,
@@ -39,12 +40,7 @@ LABEL_META = {
 
 # ── Load model ────────────────────────────────────────────────────────────
 print("Loading model...")
-try:
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
-except Exception:
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-
-from transformers import DistilBertForSequenceClassification
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
 model = DistilBertForSequenceClassification.from_pretrained(MODEL_DIR)
 model.eval()
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -53,12 +49,8 @@ print(f"✅ Model loaded on {device}")
 
 
 # ── Inference ─────────────────────────────────────────────────────────────
-def classify(title: str, body: str, flair: str) -> tuple[str, dict]:
-    """Run inference and return (label, confidence_dict)."""
-    parts = []
-    if flair.strip():
-        parts.append(f"[{flair.strip()}]")
-    parts.append(title.strip())
+def classify(title: str, body: str) -> tuple[str, dict]:
+    parts = [title.strip()]
     if body.strip():
         parts.append(body.strip())
     text = " ".join(parts)
@@ -79,12 +71,11 @@ def classify(title: str, body: str, flair: str) -> tuple[str, dict]:
     probs = torch.softmax(logits, dim=-1).squeeze().cpu().numpy()
     pred_id = int(np.argmax(probs))
     label   = ID_TO_LABEL[pred_id]
-
     confidence = {ID_TO_LABEL[i]: float(probs[i]) for i in range(len(probs))}
     return label, confidence
 
 
-def run(title: str, body: str, flair: str):
+def run(title: str, body: str):
     if not title.strip():
         return (
             gr.update(value="Enter a post title above.", visible=True),
@@ -92,7 +83,7 @@ def run(title: str, body: str, flair: str):
             gr.update(value={}),
         )
 
-    label, confidence = classify(title, body, flair)
+    label, confidence = classify(title, body)
     meta  = LABEL_META[label]
     pct   = confidence[label] * 100
     color = meta["color"]
@@ -118,7 +109,7 @@ def run(title: str, body: str, flair: str):
 
     bar_html = "<div style='margin-top:8px'>"
     for lbl, prob in sorted(confidence.items(), key=lambda x: -x[1]):
-        m   = LABEL_META[lbl]
+        m = LABEL_META[lbl]
         pct_bar = prob * 100
         bold = "font-weight:700;" if lbl == label else ""
         bar_html += f"""
@@ -147,13 +138,6 @@ css = """
 footer { display: none !important; }
 """
 
-FLAIR_CHOICES = [
-    "", "Discussion", "Episode", "Rewatch", "What to Watch?", "Help",
-    "News", "Official Media", "Fanart", "Video", "Video Edit", "Clip",
-    "Infographic", "Daily", "Weekly", "Announcement", "Misc.", "Essay",
-    "Review", "Writing Club",
-]
-
 with gr.Blocks(css=css, title="TakeMeter Classifier") as demo:
     gr.Markdown(
         """
@@ -164,12 +148,6 @@ with gr.Blocks(css=css, title="TakeMeter Classifier") as demo:
     )
 
     with gr.Column(elem_id="card"):
-        flair_in = gr.Dropdown(
-            choices=FLAIR_CHOICES,
-            value="",
-            label="Flair (optional but improves accuracy)",
-            allow_custom_value=True,
-        )
         title_in = gr.Textbox(
             label="Post title",
             placeholder="e.g. Does demon slayer get better?",
@@ -192,12 +170,12 @@ with gr.Blocks(css=css, title="TakeMeter Classifier") as demo:
 
     btn.click(
         fn=run,
-        inputs=[title_in, body_in, flair_in],
+        inputs=[title_in, body_in],
         outputs=[badge_out, bars_out, json_out],
     )
     title_in.submit(
         fn=run,
-        inputs=[title_in, body_in, flair_in],
+        inputs=[title_in, body_in],
         outputs=[badge_out, bars_out, json_out],
     )
 
